@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="hr" class="h-full bg-slate-900 text-slate-100">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Glasovni Planer Zadataka</title>
+    
+    <!-- PWA Primary Meta Tags -->
+    <meta name="theme-color" content="#0f172a">
+    <meta name="description" content="Moderna To-Do PWA aplikacija s naprednim glasovnim unosom na hrvatskom jeziku.">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Zadaci">
+    
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            50: '#f0f9ff',
+                            500: '#0ea5e9',
+                            600: '#0284c7',
+                            700: '#0369a1',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Inter Font -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            -webkit-tap-highlight-color: transparent;
+            user-select: none;
+        }
+        /* Visual pulse for voice recording */
+        @keyframes pulse-ring {
+            0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+            50% { transform: scale(1.08); box-shadow: 0 0 0 12px rgba(239, 68, 68, 0); }
+            100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+        }
+        .recording-pulse {
+            animation: pulse-ring 1.2s infinite ease-in-out;
+            background-color: #ef4444 !important;
+            color: #ffffff !important;
+        }
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #0f172a;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #334155;
+            border-radius: 9999px;
+        }
+    </style>
+</head>
+<body class="h-full flex flex-col justify-between max-w-md mx-auto bg-slate-900 border-x border-slate-800 shadow-2xl relative select-none">
+
+    <!-- Dinamička PWA registracija (Manifest + SW via Blob) -->
+    <script>
+        // Web Manifest
+        const manifest = {
+            "name": "Glasovni Planer Zadataka",
+            "short_name": "Zadaci",
+            "start_url": "./",
+            "display": "standalone",
+            "background_color": "#0f172a",
+            "theme_color": "#0f172a",
+            "orientation": "portrait",
+            "icons": [
+                {
+                    "src": "https://cdn-icons-png.flaticon.com/512/906/906334.png",
+                    "sizes": "192x192",
+                    "type": "image/png"
+                },
+                {
+                    "src": "https://cdn-icons-png.flaticon.com/512/906/906334.png",
+                    "sizes": "512x512",
+                    "type": "image/png"
+                }
+            ]
+        };
+        const manifestBlob = new Blob([JSON.stringify(manifest)], {type: 'application/json'});
+        const manifestUrl = URL.createObjectURL(manifestBlob);
+        const manifestLink = document.createElement('link');
+        manifestLink.rel = 'manifest';
+        manifestLink.href = manifestUrl;
+        document.head.appendChild(manifestLink);
+
+        // Service Worker Kôd
+        const swCode = `
+            const CACHE_NAME = 'todo-pwa-v2';
+            const ASSETS = [
+                './',
+                'https://cdn.tailwindcss.com',
+                'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css',
+                'https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap'
+            ];
+
+            self.addEventListener('install', (e) => {
+                e.waitUntil(
+                    caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS))
+                );
+            });
+
+            self.addEventListener('fetch', (e) => {
+                e.respondWith(
+                    caches.match(e.request).then((res) => res || fetch(e.request))
+                );
+            });
+        `;
+        
+        if ('serviceWorker' in navigator) {
+            const swBlob = new Blob([swCode], {type: 'application/javascript'});
+            const swUrl = URL.createObjectURL(swBlob);
+            navigator.serviceWorker.register(swUrl)
+                .then(() => console.log('Service Worker Registriran'))
+                .catch(err => console.log('SW Greška:', err));
+        }
+    </script>
+
+    <!-- Heder Aplikacije -->
+    <header class="sticky top-0 z-10 bg-slate-900/90 backdrop-blur-md border-b border-slate-800 p-4 flex justify-between items-center">
+        <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-sky-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-sky-500/20">
+                <i class="fa-solid fa-list-check text-white text-lg"></i>
+            </div>
+            <div>
+                <h1 class="font-bold text-lg leading-tight">Moje Obveze</h1>
+                <p class="text-xs text-slate-400" id="current-date">Učitavanje datuma...</p>
+            </div>
+        </div>
+        <button id="info-btn" class="w-9 h-9 rounded-full bg-slate-800 hover:bg-slate-700 flex items-center justify-center text-slate-300 transition">
+            <i class="fa-solid fa-circle-info"></i>
+        </button>
+    </header>
+
+    <!-- Main Content Area -->
+    <main class="flex-1 overflow-y-auto p-4 space-y-4">
+        
+        <!-- Unos Zadatka Forma -->
+        <section class="bg-slate-800/80 p-4 rounded-2xl border border-slate-700/60 shadow-xl space-y-3">
+            <div class="relative flex items-center">
+                <input type="text" id="task-input" placeholder="Npr. Kupi mlijeko i kruh..." 
+                    class="w-full bg-slate-900/90 text-slate-100 placeholder-slate-500 rounded-xl py-3 pl-4 pr-12 border border-slate-700 focus:outline-none focus:border-sky-500 transition text-sm">
+                
+                <!-- Gumb za glasovni unos (Pridrži ili Klikni) -->
+                <button id="voice-btn" type="button" title="Držite za govor ili kliknite za uključivanje" 
+                    class="absolute right-2 w-9 h-9 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-sky-400 flex items-center justify-center transition active:scale-95 touch-none">
+                    <i class="fa-solid fa-microphone"></i>
+                </button>
+            </div>
+
+            <!-- Poruka stanja snimanja glasa -->
+            <div id="voice-status" class="hidden text-xs text-rose-400 flex items-center justify-center gap-2 animate-pulse font-medium bg-rose-950/30 py-1.5 px-3 rounded-lg border border-rose-900/40">
+                <span class="w-2 h-2 rounded-full bg-rose-500"></span> <span>Slušam na hrvatskom... Govorite sad!</span>
+            </div>
+
+            <!-- Dodatne opcije: Prioritet i Datum -->
+            <div class="grid grid-cols-2 gap-2 text-xs">
+                <div>
+                    <label class="block text-slate-400 mb-1 font-medium"><i class="fa-solid fa-flag mr-1"></i> Prioritet</label>
+                    <select id="task-priority" class="w-full bg-slate-900 border border-slate-700 text-slate-200 rounded-lg p-2.5 focus:outline-none focus:border-sky-500">
+                        <option value="low">🟢 Niski prioritet</option>
+                        <option value="high">🔴 Visoki prioritet</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-slate-400 mb-1 font-medium"><i class="fa-solid fa-calendar-days mr-1"></i> Rok izvršenja</label>
+                    <input type="date" id="task-date" class="w-full bg-slate-900 border border-slate-700 text-slate-200 rounded-lg p-2 focus:outline-none focus:border-sky-500">
+                </div>
+            </div>
+
+            <!-- Gumb Dodaj Zadatak -->
+            <button id="add-task-btn" class="w-full bg-gradient-to-r from-sky-500 to-indigo-600 hover:from-sky-600 hover:to-indigo-700 text-white font-semibold py-3 rounded-xl shadow-lg shadow-sky-500/25 transition active:scale-[0.98] flex items-center justify-center gap-2 text-sm">
+                <i class="fa-solid fa-plus"></i> Dodaj Zadatak
+            </button>
+        </section>
+
+        <!-- Filteri -->
+        <section class="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs no-scrollbar" id="filter-buttons">
+            <button data-filter="all" class="filter-btn active-filter px-3 py-1.5 rounded-lg font-medium transition bg-sky-500 text-white">Svi</button>
+            <button data-filter="active" class="filter-btn px-3 py-1.5 rounded-lg font-medium transition bg-slate-800 text-slate-400 hover:text-slate-200">Aktivni</button>
+            <button data-filter="completed" class="filter-btn px-3 py-1.5 rounded-lg font-medium transition bg-slate-800 text-slate-400 hover:text-slate-200">Završeni</button>
+            <button data-filter="high" class="filter-btn px-3 py-1.5 rounded-lg font-medium transition bg-slate-800 text-slate-400 hover:text-slate-200">🔴 Visoki prioritet</button>
+        </section>
+
+        <!-- Statistička traka -->
+        <div class="flex justify-between items-center text-xs text-slate-400 px-1">
+            <span id="task-count">0 zadataka</span>
+            <button id="clear-completed" class="hover:text-rose-400 transition hidden">Očisti završene</button>
+        </div>
+
+        <!-- Lista Zadataka -->
+        <section id="task-list" class="space-y-2.5 pb-8">
+            <!-- Dinamički zadaci stižu ovdje -->
+        </section>
+
+        <!-- Prazno stanje -->
+        <div id="empty-state" class="hidden flex-col items-center justify-center py-12 text-center text-slate-500">
+            <div class="w-16 h-16 rounded-full bg-slate-800/50 flex items-center justify-center mb-3 text-slate-600 text-2xl">
+                <i class="fa-solid fa-clipboard-check"></i>
+            </div>
+            <p class="font-medium text-slate-400">Nema pronađenih zadataka</p>
+            <p class="text-xs text-slate-500 mt-1">Dodajte novi zadatak ručno ili držeći tipku mikrofona!</p>
+        </div>
+    </main>
+
+    <!-- Modal za Upute -->
+    <div id="info-modal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4 hidden">
+        <div class="bg-slate-900 border border-slate-800 w-full max-w-md rounded-2xl p-5 space-y-4 max-h-[85vh] overflow-y-auto shadow-2xl">
+            <div class="flex justify-between items-center border-b border-slate-800 pb-3">
+                <h3 class="font-bold text-lg text-slate-100 flex items-center gap-2">
+                    <i class="fa-solid fa-mobile-screen-button text-sky-400"></i> Upute i PWA Instalacija
+                </h3>
+                <button id="close-modal" class="text-slate-400 hover:text-slate-100"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+
+            <div class="space-y-4 text-xs text-slate-300 leading-relaxed">
+                <div>
+                    <h4 class="font-semibold text-amber-400 mb-1 text-sm"><i class="fa-solid fa-microphone mr-1"></i> Glasovni unos:</h4>
+                    <p class="text-slate-400">Pritisnite i <b>držite ikonu mikrofona</b> dok govorite (ili jednom kliknite). Izgovorite zadatak na hrvatskom jeziku i tekst će se automatski upisati u polje!</p>
+                </div>
+
+                <div class="border-t border-slate-800 pt-3">
+                    <h4 class="font-semibold text-emerald-400 mb-1 text-sm"><i class="fa-solid fa-download mr-1"></i> Instalacija na Mobitel:</h4>
+                    <ul class="list-disc pl-4 space-y-1 text-slate-400">
+                        <li><b>Android (Chrome):</b> Kliknite na tri točkice pri vrhu i odaberite <b>"Dodaj na početni zaslon"</b> ili <b>"Instaliraj aplikaciju"</b>.</li>
+                        <li><b>iOS (Safari):</b> Kliknite na gumb Dijeli (Share) pri dnu i odaberite <b>"Dodaj na početni zaslon"</b>.</li>
+                    </ul>
+                </div>
+            </div>
+
+            <button id="modal-ok-btn" class="w-full bg-slate-800 hover:bg-slate-700 text-slate-200 font-medium py-2.5 rounded-xl border border-slate-700 transition">
+                U redu
+            </button>
+        </div>
+    </div>
+
+    <!-- Toast Obavijest -->
+    <div id="toast" class="fixed bottom-5 left-1/2 -translate-x-1/2 bg-slate-800 text-slate-200 border border-slate-700 px-4 py-2 rounded-xl text-xs font-medium shadow-2xl transition opacity-0 pointer-events-none flex items-center gap-2 z-50">
+        <i id="toast-icon" class="fa-solid fa-circle-check text-emerald-400"></i>
+        <span id="toast-message">Poruka</span>
+    </div>
+
+    <!-- JavaScript Logika Aplikacije -->
+    <script>
+        // Inicijalizacija stanja
+        let tasks = JSON.parse(localStorage.getItem('pwa_tasks') || '[]');
+        let currentFilter = 'all';
+
+        // Elementi sučelja
+        const taskInput = document.getElementById('task-input');
+        const taskPriority = document.getElementById('task-priority');
+        const taskDate = document.getElementById('task-date');
+        const addTaskBtn = document.getElementById('add-task-btn');
+        const voiceBtn = document.getElementById('voice-btn');
+        const voiceStatus = document.getElementById('voice-status');
+        const taskList = document.getElementById('task-list');
+        const emptyState = document.getElementById('empty-state');
+        const taskCount = document.getElementById('task-count');
+        const clearCompletedBtn = document.getElementById('clear-completed');
+        const filterBtns = document.querySelectorAll('.filter-btn');
+        const currentDateEl = document.getElementById('current-date');
+
+        // Modal
+        const infoBtn = document.getElementById('info-btn');
+        const infoModal = document.getElementById('info-modal');
+        const closeModal = document.getElementById('close-modal');
+        const modalOkBtn = document.getElementById('modal-ok-btn');
+
+        // Prikaz današnjeg datuma na hrvatskom
+        const today = new Date();
+        const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+        currentDateEl.textContent = today.toLocaleDateString('hr-HR', options);
+
+        // Spremanje u localStorage
+        function saveTasks() {
+            localStorage.setItem('pwa_tasks', JSON.stringify(tasks));
+            renderTasks();
+        }
+
+        // Prikaz Toast Obavijesti
+        function showToast(msg, icon = 'fa-circle-check', colorClass = 'text-emerald-400') {
+            const toast = document.getElementById('toast');
+            const toastMessage = document.getElementById('toast-message');
+            const toastIcon = document.getElementById('toast-icon');
+
+            toastMessage.textContent = msg;
+            toastIcon.className = `fa-solid ${icon} ${colorClass}`;
+            toast.classList.remove('opacity-0', 'pointer-events-none');
+            
+            setTimeout(() => {
+                toast.classList.add('opacity-0', 'pointer-events-none');
+            }, 2500);
+        }
+
+        // Dodavanje zadatka
+        function addTask() {
+            const title = taskInput.value.trim();
+            if (!title) {
+                showToast('Molimo unesite tekst zadatka!', 'fa-triangle-exclamation', 'text-amber-400');
+                return;
+            }
+
+            const newTask = {
+                id: Date.now().toString(),
+                title: title,
+                priority: taskPriority.value, // 'high' ili 'low'
+                dueDate: taskDate.value || null,
+                completed: false,
+                createdAt: new Date().toISOString()
+            };
+
+            tasks.unshift(newTask);
+            saveTasks();
+
+            // Resetirajte polja
+            taskInput.value = '';
+            taskDate.value = '';
+            taskPriority.value = 'low';
+
+            showToast('Zadatak uspješno dodan!');
+        }
+
+        // Prebacivanje stanja (Završeno/Aktivno)
+        window.toggleTask = function(id) {
+            tasks = tasks.map(t => t.id === id ? { ...t, completed: !t.completed } : t);
+            saveTasks();
+        };
+
+        // Brisanje zadatka
+        window.deleteTask = function(id) {
+            tasks = tasks.filter(t => t.id !== id);
+            saveTasks();
+            showToast('Zadatak izbrisan', 'fa-trash-can', 'text-rose-400');
+        };
+
+        // Filtriranje i Prikaz zadataka
+        function renderTasks() {
+            let filteredTasks = tasks.filter(task => {
+                if (currentFilter === 'active') return !task.completed;
+                if (currentFilter === 'completed') return task.completed;
+                if (currentFilter === 'high') return task.priority === 'high';
+                return true;
+            });
+
+            taskList.innerHTML = '';
+
+            if (filteredTasks.length === 0) {
+                emptyState.classList.remove('hidden');
+                emptyState.classList.add('flex');
+            } else {
+                emptyState.classList.add('hidden');
+                emptyState.classList.remove('flex');
+
+                filteredTasks.forEach(task => {
+                    const card = document.createElement('div');
+                    card.className = `bg-slate-800/90 rounded-xl p-3.5 border transition-all duration-200 flex items-start gap-3 shadow-md ${
+                        task.completed 
+                            ? 'border-slate-800/80 opacity-60' 
+                            : task.priority === 'high' 
+                                ? 'border-rose-500/40 bg-rose-950/10' 
+                                : 'border-slate-700/80'
+                    }`;
+
+                    // Formatiranje roka ako postoji
+                    let formattedDate = '';
+                    if (task.dueDate) {
+                        const d = new Date(task.dueDate);
+                        formattedDate = d.toLocaleDateString('hr-HR', { day: 'numeric', month: 'short' });
+                    }
+
+                    card.innerHTML = `
+                        <button onclick="toggleTask('${task.id}')" class="mt-0.5 text-lg transition text-slate-500 hover:text-sky-400">
+                            <i class="${task.completed ? 'fa-solid fa-circle-check text-emerald-400' : 'fa-regular fa-circle'}"></i>
+                        </button>
+                        
+                        <div class="flex-1 min-w-0">
+                            <p class="text-sm text-slate-100 font-medium break-words ${task.completed ? 'line-through text-slate-400' : ''}">
+                                ${escapeHtml(task.title)}
+                            </p>
+                            
+                            <div class="flex items-center gap-2 mt-2 flex-wrap text-[11px]">
+                                <!-- Prioritet Badge -->
+                                <span class="px-2 py-0.5 rounded-md font-semibold ${
+                                    task.priority === 'high' 
+                                        ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30' 
+                                        : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                                }">
+                                    ${task.priority === 'high' ? 'Visoki prioritet' : 'Niski prioritet'}
+                                </span>
+
+                                <!-- Rok Badge -->
+                                ${task.dueDate ? `
+                                    <span class="px-2 py-0.5 rounded-md bg-slate-700/60 text-slate-300 flex items-center gap-1">
+                                        <i class="fa-regular fa-calendar text-[10px]"></i> ${formattedDate}
+                                    </span>
+                                ` : ''}
+                            </div>
+                        </div>
+
+                        <button onclick="deleteTask('${task.id}')" class="text-slate-500 hover:text-rose-400 p-1 transition">
+                            <i class="fa-solid fa-trash-can text-sm"></i>
+                        </button>
+                    `;
+                    taskList.appendChild(card);
+                });
+            }
+
+            // Brojač zadataka
+            const activeCount = tasks.filter(t => !t.completed).length;
+            taskCount.textContent = `${activeCount} ${activeCount === 1 ? 'preostali zadatak' : 'preostala zadatka'}`;
+
+            // Gumb za čišćenje završenih
+            const hasCompleted = tasks.some(t => t.completed);
+            if (hasCompleted) {
+                clearCompletedBtn.classList.remove('hidden');
+            } else {
+                clearCompletedBtn.classList.add('hidden');
+            }
+        }
+
+        // Zaštita od XSS-a
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // --- GLASOVNI UNOS (Push-To-Talk & Toggle Speech Recognition API) ---
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+        if (SpeechRecognition) {
+            const recognition = new SpeechRecognition();
+            recognition.lang = 'hr-HR';
+            recognition.continuous = true;
+            recognition.interimResults = true;
+
+            let isRecording = false;
+
+            function startRecording() {
+                if (isRecording) return;
+                try {
+                    recognition.start();
+                    isRecording = true;
+                    voiceStatus.classList.remove('hidden');
+                    voiceBtn.classList.add('recording-pulse');
+                } catch (e) {
+                    console.error('Greška pri pokretanju:', e);
+                }
+            }
+
+            function stopRecording() {
+                if (!isRecording) return;
+                try {
+                    recognition.stop();
+                    isRecording = false;
+                    voiceStatus.classList.add('hidden');
+                    voiceBtn.classList.remove('recording-pulse');
+                } catch (e) {
+                    console.error('Greška pri zaustavljanju:', e);
+                }
+            }
+
+            // Push-To-Talk (Drži za govor na mobitelu i računalu)
+            voiceBtn.addEventListener('mousedown', (e) => { e.preventDefault(); startRecording(); });
+            voiceBtn.addEventListener('mouseup', (e) => { e.preventDefault(); stopRecording(); });
+            voiceBtn.addEventListener('mouseleave', () => { if (isRecording) stopRecording(); });
+
+            voiceBtn.addEventListener('touchstart', (e) => { e.preventDefault(); startRecording(); });
+            voiceBtn.addEventListener('touchend', (e) => { e.preventDefault(); stopRecording(); });
+
+            recognition.onresult = (event) => {
+                let currentTranscript = '';
+                for (let i = event.resultIndex; i < event.results.length; i++) {
+                    currentTranscript += event.results[i][0].transcript;
+                }
+                if (currentTranscript.trim()) {
+                    taskInput.value = currentTranscript;
+                }
+            };
+
+            recognition.onerror = (event) => {
+                console.error('Greška glasovnog unosa:', event.error);
+                if (event.error !== 'no-speech') {
+                    showToast('Omogućite pristup mikrofonu u pregledniku', 'fa-triangle-exclamation', 'text-rose-400');
+                }
+                stopRecording();
+            };
+
+            recognition.onend = () => {
+                isRecording = false;
+                voiceStatus.classList.add('hidden');
+                voiceBtn.classList.remove('recording-pulse');
+            };
+        } else {
+            voiceBtn.addEventListener('click', () => {
+                showToast('Preglednik ne podržava glasovni unos', 'fa-triangle-exclamation', 'text-amber-400');
+            });
+        }
+
+        // Event Listeners
+        addTaskBtn.addEventListener('click', addTask);
+        
+        taskInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') addTask();
+        });
+
+        clearCompletedBtn.addEventListener('click', () => {
+            tasks = tasks.filter(t => !t.completed);
+            saveTasks();
+            showToast('Završeni zadaci očišćeni');
+        });
+
+        // Eventi za filter gumbove
+        filterBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                filterBtns.forEach(b => {
+                    b.classList.remove('bg-sky-500', 'text-white', 'active-filter');
+                    b.classList.add('bg-slate-800', 'text-slate-400');
+                });
+
+                btn.classList.remove('bg-slate-800', 'text-slate-400');
+                btn.classList.add('bg-sky-500', 'text-white', 'active-filter');
+
+                currentFilter = btn.getAttribute('data-filter');
+                renderTasks();
+            });
+        });
+
+        // Modal rukovanje
+        infoBtn.addEventListener('click', () => infoModal.classList.remove('hidden'));
+        closeModal.addEventListener('click', () => infoModal.classList.add('hidden'));
+        modalOkBtn.addEventListener('click', () => infoModal.classList.add('hidden'));
+
+        infoModal.addEventListener('click', (e) => {
+            if (e.target === infoModal) infoModal.classList.add('hidden');
+        });
+
+        // Prvo učitavanje
+        renderTasks();
+    </script>
+</body>
+</html>
